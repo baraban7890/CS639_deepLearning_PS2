@@ -52,16 +52,17 @@ class Conv(object):
         # You are NOT allowed to use anything in torch.nn in other places. #
         ####################################################################
         # Replace "pass" statement with your code
+        # TODO: fix "can't convert cuda:0 device type tensor to numpy"
         N, C, H, W = x.shape
         F, C, HH, WW = w.shape
         padding = conv_param['pad']
         stride = conv_param['stride']
-        Hprime = int((1 + (H + 2 * padding - HH) / stride))
-        Wprime = int((1 + (W + 2 * padding - WW) / stride))
+        Hprime = int(1 + (H + 2 * padding - HH) / stride)
+        Wprime = int(1 + (W + 2 * padding - WW) / stride)
         
         paddingTensor = (padding,padding,padding,padding)
-        xnew = torch.nn.functional.pad(x,paddingTensor).cuda()
-        out = torch.zeros(N, F, Hprime, Wprime,dtype = torch.float64).cuda()
+        xnew = torch.nn.functional.pad(x,paddingTensor).to(x.device).to(x.dtype)
+        out = torch.zeros(N, F, Hprime, Wprime, device=x.device, dtype=torch.float64)
         for n in range(N): #iterate through output shape (N,F,Hprime, Wprime)
             for f in range(F): 
                 for h in range(Hprime):
@@ -71,7 +72,6 @@ class Conv(object):
                         hstart = h * stride
                         hend = hstart + HH
                         out[n,f,h,i] = torch.sum(xnew[n,:,hstart:hend,wstart:wend] * w[f]) + b[f]
-        out = out.cuda()
         #####################################################################
         #                          END OF YOUR CODE                         #
         #####################################################################
@@ -95,6 +95,7 @@ class Conv(object):
         ###############################################################
         # TODO: Implement the convolutional backward pass.            #
         ###############################################################
+        # Replace "pass" statement with your code
         x, w, b, conv_param = cache
         N, C, H, W = x.shape
         F, C, HH, WW = w.shape
@@ -156,7 +157,26 @@ class MaxPool(object):
         # TODO: Implement the max-pooling forward pass                     #
         ####################################################################
         # Replace "pass" statement with your code
-        pass
+        N, C, H, W = x.shape
+        height = pool_param['pool_height']
+        width = pool_param['pool_width']
+        stride = pool_param['stride']
+
+        H_prime = int(1 + (H - height) / stride)
+        W_prime = int(1 + (W - width) / stride)
+
+        out = torch.zeros(N, C, H_prime, W_prime).to(x.device).to(x.dtype)
+        
+        for n in range(N):#iterate through output shape (N,C,H_prime,W_prime)
+          for c in range(C):
+            for h in range(H_prime):
+              for w in range(W_prime):
+                hstart = h * stride
+                hend = hstart + height
+                wstart = w * stride
+                wend = wstart + width
+                out[n,c,h,w]=torch.max(x[n,c,hstart:hend,wstart:wend])
+        
         ####################################################################
         #                         END OF YOUR CODE                         #
         ####################################################################
@@ -178,7 +198,20 @@ class MaxPool(object):
         # TODO: Implement the max-pooling backward pass                     #
         #####################################################################
         # Replace "pass" statement with your code
-        pass
+        x, pool_param = cache
+
+        N, C, H, W = x.shape
+        height = pool_param['pool_height']
+        width = pool_param['pool_width']
+        stride = pool_param['stride']
+
+        H_prime = int(1 + (H - height) / stride)
+        W_prime = int(1 + (W - width) / stride)
+
+        out = torch.zeros_like(x).to(x.device)
+
+        # pending finish
+
         ####################################################################
         #                          END OF YOUR CODE                        #
         ####################################################################
@@ -212,7 +245,7 @@ class ThreeLayerConvNet(object):
         - filter_size: Width/height of filters to use in convolutional layer
         - hidden_dim: Number of units to use in fully-connected hidden layer
         - num_classes: Number of scores to produce from the final linear layer.
-        - weight_scale: Scalar giving standard deviation for random 
+        - weight_scale: Scalar giving standard deviation for random
           initialization of weights.
         - reg: Scalar giving L2 regularization strength
         - dtype: A torch data type object; all computations will be performed
@@ -241,8 +274,6 @@ class ThreeLayerConvNet(object):
         # look at the start of the loss() function to see how that happens.  #
         ######################################################################
         # Replace "pass" statement with your code
-        # conv - relu - 2x2 max pool - linear - relu - linear - softmax
-        
         pass
         ######################################################################
         #                            END OF YOUR CODE                        #
