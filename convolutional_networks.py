@@ -157,7 +157,7 @@ class MaxPool(object):
         # TODO: Implement the max-pooling forward pass                     #
         ####################################################################
         # Replace "pass" statement with your code
-        N, C, H, W = x.shape
+        N,C,H,W = x.shape
         height = pool_param['pool_height']
         width = pool_param['pool_width']
         stride = pool_param['stride']
@@ -225,7 +225,6 @@ class MaxPool(object):
 
                 dx[n,c,hstart:hend, wstart:wend][max_h, max_w] = dout[n,c,h,w]
 
-
         ####################################################################
         #                          END OF YOUR CODE                        #
         ####################################################################
@@ -288,7 +287,24 @@ class ThreeLayerConvNet(object):
         # look at the start of the loss() function to see how that happens.  #
         ######################################################################
         # Replace "pass" statement with your code
-        pass
+        C, H, W = input_dims
+        std1 = torch.zeros(num_filters, C, filter_size, filter_size)
+        std2 = torch.zeros(num_filters*(H//2)*(W//2), hidden_dim) #since pool, reduces dim by half
+        std3 = torch.zeros(hidden_dim, num_classes)
+        std1 = torch.fill(std1, weight_scale).to(device).to(dtype)
+        std2 = torch.fill(std2, weight_scale).to(device).to(dtype)
+        std3 = torch.fill(std3, weight_scale).to(device).to(dtype)
+
+        # change torch.zeros according to piazza post @153
+        self.params['W1'] = torch.normal(mean=torch.zeros(
+            num_filters, C, filter_size, filter_size).to(device).to(dtype), std=std1)
+        self.params['W2'] = torch.normal(mean=torch.zeros(
+            num_filters*(H//2)*(W//2), hidden_dim).to(device).to(dtype), std=std2)
+        self.params['W3'] = torch.normal(mean=torch.zeros(
+            hidden_dim, num_classes).to(device).to(dtype), std=std3)
+        self.params['b1'] = torch.zeros(num_filters).to(device).to(dtype)
+        self.params['b2'] = torch.zeros(hidden_dim).to(device).to(dtype)
+        self.params['b3'] = torch.zeros(num_classes).to(device).to(dtype)
         ######################################################################
         #                            END OF YOUR CODE                        #
         ######################################################################
@@ -337,7 +353,17 @@ class ThreeLayerConvNet(object):
         # above                                                              #
         ######################################################################
         # Replace "pass" statement with your code
-        pass
+        #conv - relu - 2x2 max pool - linear - relu - linear - softmax
+        Linear_relu = Linear_ReLU()
+        lm = Linear()
+        mp = MaxPool()
+        conv = Conv()
+        relu = ReLU()
+        out1, cache1 = conv.forward(X,W1,b1,conv_param)
+        out2, cache2 = relu.forward(out1)
+        out3, cache3 = mp.forward(out2, pool_param)
+        out4, cache4 = Linear_relu.forward(out3, W2, b2)
+        scores, cache5 = lm.forward(out4, W3, b3)
         ######################################################################
         #                             END OF YOUR CODE                       #
         ######################################################################
@@ -358,7 +384,21 @@ class ThreeLayerConvNet(object):
         # does not include a factor of 0.5                                 #
         ####################################################################
         # Replace "pass" statement with your code
-        pass
+        loss, dscores = softmax_loss(scores, y)
+        loss += self.reg * \
+            (torch.sum(self.params['W1'] ** 2) + \
+            torch.sum(self.params['W2'] ** 2) + \
+            torch.sum(self.params['W3'] ** 2))
+        dx5, grads['W3'], grads['b3'] = lm.backward(dscores, cache5)
+        dx4, grads['W2'], grads['b2'] = Linear_relu.backward(dx5, cache4)
+        dx3 = mp.backward(dx4,cache3)
+        dx2 = relu.backward(dx3,cache2)
+        dx1, grads['W1'], grads['b1'] = conv.backward(dx2, cache1)
+        grads['W3'] += 2*self.reg*(self.params['W3'].cuda()).cuda()
+        grads['W2'] += 2*self.reg*(self.params['W2'].cuda()).cuda()
+        grads['W1'] += 2*self.reg*(self.params['W1'].cuda()).cuda()
+        dx1, dx2, dx3 = dx1.cuda(), dx2.cuda(), dx3.cuda()
+        grads['b1'], grads['b2'], grads['b3'] = grads['b1'].cuda(), grads['b2'].cuda(), grads['b3'].cuda()
         ###################################################################
         #                             END OF YOUR CODE                    #
         ###################################################################
