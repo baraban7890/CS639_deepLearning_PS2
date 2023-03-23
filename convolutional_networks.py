@@ -485,7 +485,31 @@ class DeepConvNet(object):
         # initilized to ones and zeros respectively.                        #
         #####################################################################
         # Replace "pass" statement with your code
-        pass
+        C, H, W = input_dims
+
+        for i in range(1, self.num_layers):
+          D_out = C if i == 1 else num_filters[i-2]
+
+          if weight_scale == "kaiming":
+            self.params[f'W{i}'] = kaiming_initializer(num_filters[i-1], 
+                          D_out, K=3, relu=True, device=device, dtype=dtype)
+          else:
+            self.params[f'W{i}'] = torch.randn(num_filters[i-1], D_out, 3, 
+                          3, device=device, dtype=dtype) * weight_scale 
+          self.params[f'b{i}'] = torch.zeros(num_filters[i-1], device=device, dtype=dtype)
+
+          if batchnorm == True:
+            self.params[f'gamma{i}'] = torch.ones(num_filters[i-1], device=device, dtype=dtype)
+            self.params[f'beta{i}'] = torch.zeros(num_filters[i-1], device=device, dtype=dtype)
+
+        # last layer
+        if weight_scale == "kaiming":
+          self.params[f'W{self.num_layers+1}'] = kaiming_initializer(num_filters[-1]*H*W // (4**len(max_pools)), 
+                              Dout=num_classes, K=3, relu=True, device=device, dtype=dtype)
+        else:
+          self.params[f'W{self.num_layers+1}'] = torch.randn(num_filters[-1]*H*W // (4**len(max_pools)),
+                            num_classes, 3, 3, device=device, dtype=dtype) * weight_scale 
+          self.params[f'b{self.num_layers+1}'] = torch.zeros(num_classes, device=device, dtype=dtype)
         ################################################################
         #                      END OF YOUR CODE                        #
         ################################################################
