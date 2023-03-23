@@ -362,7 +362,13 @@ class ThreeLayerConvNet(object):
         out1, cache1 = conv.forward(X,W1,b1,conv_param)
         out2, cache2 = relu.forward(out1)
         out3, cache3 = mp.forward(out2, pool_param)
+        out3 = out3.to(torch.float64)
+        W2 = W2.to(torch.float64)
+        b2 = b2.to(torch.float64)
         out4, cache4 = Linear_relu.forward(out3, W2, b2)
+        out4 = out4.to(torch.float64)
+        W3 = W3.to(torch.float64)
+        b3 = b3.to(torch.float64)
         scores, cache5 = lm.forward(out4, W3, b3)
         ######################################################################
         #                             END OF YOUR CODE                       #
