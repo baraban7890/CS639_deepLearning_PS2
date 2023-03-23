@@ -208,9 +208,23 @@ class MaxPool(object):
         H_prime = int(1 + (H - height) / stride)
         W_prime = int(1 + (W - width) / stride)
 
-        out = torch.zeros_like(x).to(x.device)
+        dx = torch.zeros_like(x).to(x.device)
 
-        # pending finish
+        for n in range(N):
+          for c in range(C):
+            for h in range(H_prime):
+              for w in range(W_prime):
+                hstart = h * stride
+                hend = hstart + height
+                wstart = w * stride
+                wend = wstart + width
+
+                curr = x[n,c,hstart:hend, wstart:wend] 
+                max_idx = torch.nonzero((torch.max(curr) == curr)).flatten()
+                max_h, max_w = max_idx[0], max_idx[1]
+
+                dx[n,c,hstart:hend, wstart:wend][max_h, max_w] = dout[n,c,h,w]
+
 
         ####################################################################
         #                          END OF YOUR CODE                        #
