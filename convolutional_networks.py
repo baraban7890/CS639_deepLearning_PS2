@@ -354,22 +354,21 @@ class ThreeLayerConvNet(object):
         ######################################################################
         # Replace "pass" statement with your code
         #conv - relu - 2x2 max pool - linear - relu - linear - softmax
+        crp = Conv_ReLU_Pool()
         Linear_relu = Linear_ReLU()
         lm = Linear()
-        mp = MaxPool()
-        conv = Conv()
-        relu = ReLU()
-        out1, cache1 = conv.forward(X,W1,b1,conv_param)
-        out2, cache2 = relu.forward(out1)
-        out3, cache3 = mp.forward(out2, pool_param)
-        out3 = out3.to(torch.float64)
+        
+        out1, cache1 = crp.forward(X,W1,b1,conv_param, pool_param)
+        out1 = out1.to(torch.float64)
         W2 = W2.to(torch.float64)
         b2 = b2.to(torch.float64)
-        out4, cache4 = Linear_relu.forward(out3, W2, b2)
-        out4 = out4.to(torch.float64)
+        
+        out2, cache2 = Linear_relu.forward(out1, W2, b2)
+        out2 = out2.to(torch.float64)
         W3 = W3.to(torch.float64)
         b3 = b3.to(torch.float64)
-        scores, cache5 = lm.forward(out4, W3, b3)
+        
+        scores, cache3 = lm.forward(out2, W3, b3)
         ######################################################################
         #                             END OF YOUR CODE                       #
         ######################################################################
@@ -395,11 +394,9 @@ class ThreeLayerConvNet(object):
             (torch.sum(self.params['W1'] ** 2) + \
             torch.sum(self.params['W2'] ** 2) + \
             torch.sum(self.params['W3'] ** 2))
-        dx5, grads['W3'], grads['b3'] = lm.backward(dscores, cache5)
-        dx4, grads['W2'], grads['b2'] = Linear_relu.backward(dx5, cache4)
-        dx3 = mp.backward(dx4,cache3)
-        dx2 = relu.backward(dx3,cache2)
-        dx1, grads['W1'], grads['b1'] = conv.backward(dx2, cache1)
+        dx3, grads['W3'], grads['b3'] = lm.backward(dscores, cache3)
+        dx2, grads['W2'], grads['b2'] = Linear_relu.backward(dx3, cache2)
+        dx1, grads['W1'], grads['b1'] = crp.backward(dx2, cache1)
         grads['W3'] += 2*self.reg*(self.params['W3'].cuda()).cuda()
         grads['W2'] += 2*self.reg*(self.params['W2'].cuda()).cuda()
         grads['W1'] += 2*self.reg*(self.params['W1'].cuda()).cuda()
