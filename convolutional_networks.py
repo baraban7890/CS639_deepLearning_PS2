@@ -97,18 +97,18 @@ class Conv(object):
         ###############################################################
         # Replace "pass" statement with your code
         x, w, b, conv_param = cache
-        N, C, H, W = x.shape
+        # N, C, H, W = x.shape
         F, C, HH, WW = w.shape
         N, F, Hprime, Wprime = dout.shape
         padding = conv_param['pad']
         stride = conv_param['stride']
         paddingTensor = (padding,padding,padding,padding)
-        xnew = torch.nn.functional.pad(x,paddingTensor).cuda()
-        out = torch.zeros(N, F, Hprime, Wprime).cuda()
+        xnew = torch.nn.functional.pad(x,paddingTensor).to(x.device)
+        out = torch.zeros(N, F, Hprime, Wprime).to(x.device)
         
-        dx = torch.zeros_like(xnew, dtype=torch.float)
-        dw = torch.zeros_like(w, dtype=torch.float)
-        db = torch.zeros_like(b, dtype=torch.float)
+        dx = torch.zeros_like(xnew, dtype=torch.float64)
+        dw = torch.zeros_like(w, dtype=torch.float64)
+        db = torch.zeros_like(b, dtype=torch.float64)
         for n in range(N): #iterate through output shape (N,F,Hprime, Wprime)
             for f in range(F): 
                 for h in range(Hprime):
@@ -117,11 +117,10 @@ class Conv(object):
                         wend = wstart + WW
                         hstart = h * stride
                         hend = hstart + HH
-                        db[f] += (dout[n,f,h,i])
-                        dw[f] += (xnew[n, :, hstart:hend,wstart:wend] * dout[n,f,h,i])
+                        db[f] += dout[n,f,h,i]
+                        dw[f] += xnew[n, :, hstart:hend,wstart:wend] * dout[n,f,h,i]
                         dx_pad = w[f] * dout[n, f, h, i]
                         dx[n,:,hstart:hend,wstart:wend] += dx_pad
-                        #(w[f] * dout[n,f,h,i])
         
         #remove padding
         dx = dx[:, :, padding:-padding, padding:-padding]
@@ -488,28 +487,29 @@ class DeepConvNet(object):
         C, H, W = input_dims
 
         for i in range(1, self.num_layers):
-          D_out = C if i == 1 else num_filters[i-2]
+          prev_dim = C if i == 1 else num_filters[i-2]
+          curr_dim = num_filters[i-1]
 
           if weight_scale == "kaiming":
-            self.params[f'W{i}'] = kaiming_initializer(num_filters[i-1], 
-                          D_out, K=3, relu=True, device=device, dtype=dtype)
+            self.params[f'W{i}'] = kaiming_initializer(curr_dim, prev_dim, 
+                          K=3, relu=True, device=device, dtype=dtype)
           else:
-            self.params[f'W{i}'] = torch.randn(num_filters[i-1], D_out, 3, 
-                          3, device=device, dtype=dtype) * weight_scale 
-            self.params[f'b{i}'] = torch.zeros(num_filters[i-1], device=device, dtype=dtype)
+            self.params[f'W{i}'] = torch.randn(size=(curr_dim, prev_dim, 3, 3), 
+                          device=device, dtype=dtype) * weight_scale 
+          self.params[f'b{i}'] = torch.zeros(curr_dim, device=device, dtype=dtype)
 
           if batchnorm == True:
-            self.params[f'gamma{i}'] = torch.ones(num_filters[i-1], device=device, dtype=dtype)
-            self.params[f'beta{i}'] = torch.zeros(num_filters[i-1], device=device, dtype=dtype)
+            self.params[f'gamma{i}'] = torch.ones(curr_dim, device=device, dtype=dtype)
+            self.params[f'beta{i}'] = torch.zeros(curr_dim, device=device, dtype=dtype)
 
         # last layer
         if weight_scale == "kaiming":
           self.params[f'W{self.num_layers}'] = kaiming_initializer(num_filters[-1]*H*W // (4**len(max_pools)), 
-                              Dout=num_classes, K=3, relu=True, device=device, dtype=dtype)
+                              num_classes, K=None, relu=True, device=device, dtype=dtype)
         else:
-          self.params[f'W{self.num_layers}'] = torch.randn(num_filters[-1]*H*W // (4**len(max_pools)),
-                            num_classes, 3, 3, device=device, dtype=dtype) * weight_scale 
-          self.params[f'b{self.num_layers}'] = torch.zeros(num_classes, device=device, dtype=dtype)
+          self.params[f'W{self.num_layers}'] = torch.randn(size=(num_filters[-1]*H*W // (4**len(max_pools)),
+                            num_classes), device=device, dtype=dtype) * weight_scale 
+        self.params[f'b{self.num_layers}'] = torch.zeros(num_classes, device=device, dtype=dtype)
         ################################################################
         #                      END OF YOUR CODE                        #
         ################################################################
@@ -842,7 +842,16 @@ class BatchNorm(object):
             # (https://arxiv.org/abs/1502.03167) might prove to be helpful.  #
             ##################################################################
             # Replace "pass" statement with your code
-            pass
+            mu = torch.mean(x, dim=0) 
+            var = torch.var(x, dim=0)
+
+            xhat = (x - mu) / torch.sqrt(var + eps)
+            out = gamma * xhat + beta
+
+            running_mean = momentum * running_mean + (1 - momentum) * mu
+            running_var = momentum * running_var + (1 - momentum) * var
+
+            cache = (x, mu, var, xhat, eps, gamma, beta)
             ################################################################
             #                           END OF YOUR CODE                   #
             ################################################################
@@ -855,7 +864,8 @@ class BatchNorm(object):
             # in the out variable.                                         #
             ################################################################
             # Replace "pass" statement with your code
-            pass
+            xhat = (x - running_mean) / torch.sqrt(running_var + eps)
+            out = xhat * gamma + beta
             ################################################################
             #                      END OF YOUR CODE                        #
             ################################################################
@@ -897,7 +907,18 @@ class BatchNorm(object):
         # Don't forget to implement train and test mode separately.         #
         #####################################################################
         # Replace "pass" statement with your code
-        pass
+        
+        # https://kratzert.github.io/2016/02/12/understanding-the-gradient-flow-through-the-batch-normalization-layer.html
+        x, mu, var, xhat, eps, gamma, beta = cache
+
+        N, D = dout.shape
+        dbeta = torch.sum(dout, dim=0)
+
+        dgamma = torch.sum(dout * xhat, dim=0)
+        dxhat = dout * gamma
+
+        # final check TODO
+        
         #################################################################
         #                      END OF YOUR CODE                         #
         #################################################################
