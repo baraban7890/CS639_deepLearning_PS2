@@ -970,7 +970,10 @@ class SpatialBatchNorm(object):
         # ours is less than five lines.                                #
         ################################################################
         # Replace "pass" statement with your code
-        pass
+        N, C, H, W = x.shape
+        x = x.swapaxes(1,2).swapaxes(2,3).reshape(N*H*W, C)
+        out, cache = BatchNorm.forward(x, gamma, beta, bn_param) 
+        out = out.reshape(N, H, W, C).swapaxes(2,3).swapaxes(1,2) 
         ################################################################
         #                       END OF YOUR CODE                       #
         ################################################################
@@ -1001,7 +1004,10 @@ class SpatialBatchNorm(object):
         # ours is less than five lines.                                 #
         #################################################################
         # Replace "pass" statement with your code
-        pass
+        N, C, H, W = dout.shape
+        dout = dout.swapaxes(1,2).swapaxes(2,3).reshape(N*H*W, C)
+        dx, dgamma, dbeta = BatchNorm.backward(dout, cache)
+        dx = dout.reshape(N, H, W, C).swapaxes(2,3).swapaxes(1,2)
         ##################################################################
         #                       END OF YOUR CODE                         #
         ##################################################################
