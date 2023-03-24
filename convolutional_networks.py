@@ -496,7 +496,7 @@ class DeepConvNet(object):
           else:
             self.params[f'W{i}'] = torch.randn(num_filters[i-1], D_out, 3, 
                           3, device=device, dtype=dtype) * weight_scale 
-          self.params[f'b{i}'] = torch.zeros(num_filters[i-1], device=device, dtype=dtype)
+            self.params[f'b{i}'] = torch.zeros(num_filters[i-1], device=device, dtype=dtype)
 
           if batchnorm == True:
             self.params[f'gamma{i}'] = torch.ones(num_filters[i-1], device=device, dtype=dtype)
@@ -504,12 +504,12 @@ class DeepConvNet(object):
 
         # last layer
         if weight_scale == "kaiming":
-          self.params[f'W{self.num_layers+1}'] = kaiming_initializer(num_filters[-1]*H*W // (4**len(max_pools)), 
+          self.params[f'W{self.num_layers}'] = kaiming_initializer(num_filters[-1]*H*W // (4**len(max_pools)), 
                               Dout=num_classes, K=3, relu=True, device=device, dtype=dtype)
         else:
-          self.params[f'W{self.num_layers+1}'] = torch.randn(num_filters[-1]*H*W // (4**len(max_pools)),
+          self.params[f'W{self.num_layers}'] = torch.randn(num_filters[-1]*H*W // (4**len(max_pools)),
                             num_classes, 3, 3, device=device, dtype=dtype) * weight_scale 
-          self.params[f'b{self.num_layers+1}'] = torch.zeros(num_classes, device=device, dtype=dtype)
+          self.params[f'b{self.num_layers}'] = torch.zeros(num_classes, device=device, dtype=dtype)
         ################################################################
         #                      END OF YOUR CODE                        #
         ################################################################
@@ -616,7 +616,23 @@ class DeepConvNet(object):
         # layers, to simplify your implementation.              #
         #########################################################
         # Replace "pass" statement with your code
-        pass
+        #{conv - [batchnorm?] - relu - [pool?]} x (L - 1) - linear
+        caches = {}
+        out = X
+        crp = Conv_ReLU_Pool()
+        cr = Conv_ReLU()
+        lm = Linear()
+        for i in range(self.num_layers):
+            if i == self.num_layers-1:
+                out,cache = lm.forward(out, self.params[f'W{i+1}'], self.params[f'b{i+1}'])
+            elif i in self.max_pools:
+                out, cache = crp.forward(
+                    out, self.params[f'W{i+1}'], self.params[f'b{i+1}'], conv_param, pool_param)
+            else:
+                out, cache = cr.forward(
+                    out, self.params[f'W{i+1}'], self.params[f'b{i+1}'], conv_param)
+            caches[i] = cache
+        scores = out
         #####################################################
         #                 END OF YOUR CODE                  #
         #####################################################
@@ -637,7 +653,20 @@ class DeepConvNet(object):
         # does not include a factor of 0.5                                #
         ###################################################################
         # Replace "pass" statement with your code
-        pass
+        loss, dscores = softmax_loss(scores, y)
+
+        for i in reversed(range(self.num_layers)):
+            loss += 0.5 * self.reg * torch.sum(self.params[f'W{i+1}'] ** 2)
+            if i == 0:
+                dscores, grads[f'W{i+1}'], grads[f'b{i+1}'] = lm.backward(
+                    dscores, caches[i])
+            elif i in self.max_pools:
+                dscores, grads[f'W{i+1}'], grads[f'b{i+1}'] = crp.backward(
+                    dscores, caches[i])
+            else:
+                dscores, grads[f'W{i+1}'], grads[f'b{i+1}'] = cr.backward(
+                    dscores, caches[i])
+            grads[f'W{i+1}'] += self.reg*(self.params[f'W{i+1}'].cuda())
         #############################################################
         #                       END OF YOUR CODE                    #
         #############################################################
