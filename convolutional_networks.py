@@ -61,7 +61,7 @@ class Conv(object):
         Wprime = int(1 + (W + 2 * padding - WW) / stride)
         
         paddingTensor = (padding,padding,padding,padding)
-        xnew = torch.nn.functional.pad(x,paddingTensor).to(x.device).to(x.dtype)
+        xnew = torch.nn.functional.pad(x,paddingTensor).to(x.device)
         out = torch.zeros(N, F, Hprime, Wprime, device=x.device, dtype=torch.float64)
         for n in range(N): #iterate through output shape (N,F,Hprime, Wprime)
             for f in range(F): 
@@ -97,7 +97,6 @@ class Conv(object):
         ###############################################################
         # Replace "pass" statement with your code
         x, w, b, conv_param = cache
-        # N, C, H, W = x.shape
         F, C, HH, WW = w.shape
         N, F, Hprime, Wprime = dout.shape
         padding = conv_param['pad']
@@ -486,23 +485,27 @@ class DeepConvNet(object):
         # Replace "pass" statement with your code
         C, H, W = input_dims
 
+        # L - 1 "Macro" layers
         for i in range(1, self.num_layers):
           prev_dim = C if i == 1 else num_filters[i-2]
           curr_dim = num_filters[i-1]
 
+          # update weight according to "weight_scale"
           if weight_scale == "kaiming":
-            self.params[f'W{i}'] = kaiming_initializer(curr_dim, prev_dim, 
+            self.params[f'W{i}'] = kaiming_initializer(prev_dim, curr_dim, 
                           K=3, relu=True, device=device, dtype=dtype)
           else:
             self.params[f'W{i}'] = torch.randn(size=(curr_dim, prev_dim, 3, 3), 
                           device=device, dtype=dtype) * weight_scale 
-          self.params[f'b{i}'] = torch.zeros(curr_dim, device=device, dtype=dtype)
-
+          # initialize bias based on current dimension
+          self.params[f'b{i}'] = torch.zeros(curr_dim, device=device, dtype=dtype)  
+          
+          # optional batchnorm layer, initialize when necessary
           if batchnorm == True:
             self.params[f'gamma{i}'] = torch.ones(curr_dim, device=device, dtype=dtype)
             self.params[f'beta{i}'] = torch.zeros(curr_dim, device=device, dtype=dtype)
 
-        # last layer
+        # last linear layer
         if weight_scale == "kaiming":
           self.params[f'W{self.num_layers}'] = kaiming_initializer(num_filters[-1]*H*W // (4**len(max_pools)), 
                               num_classes, K=None, relu=True, device=device, dtype=dtype)
