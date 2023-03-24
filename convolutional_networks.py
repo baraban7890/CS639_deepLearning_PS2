@@ -106,9 +106,9 @@ class Conv(object):
         xnew = torch.nn.functional.pad(x,paddingTensor).cuda()
         out = torch.zeros(N, F, Hprime, Wprime).cuda()
         
-        dx = torch.zeros_like(xnew, dtype=torch.float)
-        dw = torch.zeros_like(w, dtype=torch.float)
-        db = torch.zeros_like(b, dtype=torch.float)
+        dx = torch.zeros_like(xnew, dtype=torch.float64)
+        dw = torch.zeros_like(w, dtype=torch.float64)
+        db = torch.zeros_like(b, dtype=torch.float64)
         for n in range(N): #iterate through output shape (N,F,Hprime, Wprime)
             for f in range(F): 
                 for h in range(Hprime):
@@ -879,7 +879,7 @@ class BatchNorm(object):
             ##################################################################
             # Replace "pass" statement with your code
             mu = torch.mean(x, dim=0) 
-            var = torch.var(x, dim=0)
+            var = torch.sum((x-mu)**2, dim=0) / N
 
             xhat = (x - mu) / torch.sqrt(var + eps)
             out = gamma * xhat + beta
@@ -887,7 +887,7 @@ class BatchNorm(object):
             running_mean = momentum * running_mean + (1 - momentum) * mu
             running_var = momentum * running_var + (1 - momentum) * var
 
-            cache = (x, mu, var, xhat, eps, gamma, beta)
+            cache = (x, mu, var, xhat, eps, gamma)
             ################################################################
             #                           END OF YOUR CODE                   #
             ################################################################
@@ -940,17 +940,21 @@ class BatchNorm(object):
         # Don't forget to implement train and test mode separately.         #
         #####################################################################
         # Replace "pass" statement with your code
-        
-        # https://kratzert.github.io/2016/02/12/understanding-the-gradient-flow-through-the-batch-normalization-layer.html
-        x, mu, var, xhat, eps, gamma, beta = cache
-
+        # Piazza post @281
         N, D = dout.shape
+        x, mu, var, xhat, eps, gamma = cache
+
         dbeta = torch.sum(dout, dim=0)
-
         dgamma = torch.sum(dout * xhat, dim=0)
+        
         dxhat = dout * gamma
+        dvar = torch.sum(dxhat * (x - mu) * (-0.5) * (var + eps)**(-3/2), dim=0)
+        dmu = torch.sum(-1 * dxhat * (var + eps)**(-1/2), dim=0) + dvar * (torch.sum(-2 * (x-mu), dim=0) / N)
 
-        # final check TODO
+        dx = dxhat * 1.0 / torch.sqrt(var + eps)
+        dx += dvar * 2.0 * (x-mu) / N
+        dx += dmu / N
+        dx = torch.sum(dx, dim=0)
         
         #################################################################
         #                      END OF YOUR CODE                         #
