@@ -4,7 +4,7 @@ WARNING: you SHOULD NOT use ".to()" or ".cuda()" in each implementation block.
 """
 import torch
 from ps2_helper import softmax_loss
-from fully_connected_networks import Linear_ReLU, Linear, Solver, adam, ReLU
+from fully_connected_networks import Linear_ReLU, Linear, Solver, adam, ReLU, sgd_momentum
 
 
 
@@ -61,7 +61,7 @@ class Conv(object):
         Wprime = int(1 + (W + 2 * padding - WW) / stride)
         
         paddingTensor = (padding,padding,padding,padding)
-        xnew = torch.nn.functional.pad(x,paddingTensor).to(x.device)
+        xnew = torch.nn.functional.pad(x,paddingTensor).to(x.device).to(x.dtype)
         out = torch.zeros(N, F, Hprime, Wprime, device=x.device, dtype=torch.float64)
         for n in range(N): #iterate through output shape (N,F,Hprime, Wprime)
             for f in range(F): 
@@ -97,17 +97,18 @@ class Conv(object):
         ###############################################################
         # Replace "pass" statement with your code
         x, w, b, conv_param = cache
+        N, C, H, W = x.shape
         F, C, HH, WW = w.shape
         N, F, Hprime, Wprime = dout.shape
         padding = conv_param['pad']
         stride = conv_param['stride']
         paddingTensor = (padding,padding,padding,padding)
-        xnew = torch.nn.functional.pad(x,paddingTensor).to(x.device)
-        out = torch.zeros(N, F, Hprime, Wprime).to(x.device)
+        xnew = torch.nn.functional.pad(x,paddingTensor).cuda()
+        out = torch.zeros(N, F, Hprime, Wprime).cuda()
         
-        dx = torch.zeros_like(xnew, dtype=torch.float64)
-        dw = torch.zeros_like(w, dtype=torch.float64)
-        db = torch.zeros_like(b, dtype=torch.float64)
+        dx = torch.zeros_like(xnew, dtype=torch.float)
+        dw = torch.zeros_like(w, dtype=torch.float)
+        db = torch.zeros_like(b, dtype=torch.float)
         for n in range(N): #iterate through output shape (N,F,Hprime, Wprime)
             for f in range(F): 
                 for h in range(Hprime):
@@ -116,10 +117,11 @@ class Conv(object):
                         wend = wstart + WW
                         hstart = h * stride
                         hend = hstart + HH
-                        db[f] += dout[n,f,h,i]
-                        dw[f] += xnew[n, :, hstart:hend,wstart:wend] * dout[n,f,h,i]
+                        db[f] += (dout[n,f,h,i])
+                        dw[f] += (xnew[n, :, hstart:hend,wstart:wend] * dout[n,f,h,i])
                         dx_pad = w[f] * dout[n, f, h, i]
                         dx[n,:,hstart:hend,wstart:wend] += dx_pad
+                        #(w[f] * dout[n,f,h,i])
         
         #remove padding
         dx = dx[:, :, padding:-padding, padding:-padding]
@@ -483,35 +485,40 @@ class DeepConvNet(object):
         # initilized to ones and zeros respectively.                        #
         #####################################################################
         # Replace "pass" statement with your code
+        #{conv - [batchnorm?] - relu - [pool?]} x (L - 1) - linear
+        
         C, H, W = input_dims
-
-        # L - 1 "Macro" layers
-        for i in range(1, self.num_layers):
-          prev_dim = C if i == 1 else num_filters[i-2]
-          curr_dim = num_filters[i-1]
-
-          # update weight according to "weight_scale"
-          if weight_scale == "kaiming":
-            self.params[f'W{i}'] = kaiming_initializer(prev_dim, curr_dim, 
-                          K=3, relu=True, device=device, dtype=dtype)
-          else:
-            self.params[f'W{i}'] = torch.randn(size=(curr_dim, prev_dim, 3, 3), 
-                          device=device, dtype=dtype) * weight_scale 
-          # initialize bias based on current dimension
-          self.params[f'b{i}'] = torch.zeros(curr_dim, device=device, dtype=dtype)  
-          
-          # optional batchnorm layer, initialize when necessary
-          if batchnorm == True:
-            self.params[f'gamma{i}'] = torch.ones(curr_dim, device=device, dtype=dtype)
-            self.params[f'beta{i}'] = torch.zeros(curr_dim, device=device, dtype=dtype)
-
-        # last linear layer
         if weight_scale == "kaiming":
-          self.params[f'W{self.num_layers}'] = kaiming_initializer(num_filters[-1]*H*W // (4**len(max_pools)), 
-                              num_classes, K=None, relu=True, device=device, dtype=dtype)
+            self.params['W1'] = kaiming_initializer(num_filters[0],C, K=3, relu=True, device=device,dtype=dtype)
         else:
-          self.params[f'W{self.num_layers}'] = torch.randn(size=(num_filters[-1]*H*W // (4**len(max_pools)),
-                            num_classes), device=device, dtype=dtype) * weight_scale 
+            self.params['W1'] = torch.randn(num_filters[0], C, 3, 3, device=device, dtype=dtype) * weight_scale
+        self.params['b1'] = torch.zeros(num_filters[0], device=device, dtype=dtype)
+        
+        
+        for i in range(1, len(num_filters)):
+            F_in = num_filters[i-1]
+            F_out = num_filters[i]
+            if weight_scale == "kaiming":
+                self.params[f'W{i+1}'] = kaiming_initializer(F_out, 
+                          F_in, K=3, relu=True, device=device, dtype=dtype)
+            else:
+                self.params[f'W{i+1}'] = torch.randn(F_out, F_in, 3, 
+                          3, device=device, dtype=dtype) * weight_scale 
+            self.params[f'b{i+1}'] = torch.zeros(F_out, device=device, dtype=dtype)
+
+            if self.batchnorm == True:
+                self.params[f'gamma{i+1}'] = torch.ones(F_out, device=device, dtype=dtype)
+                self.params[f'beta{i+1}'] = torch.zeros(F_out, device=device, dtype=dtype)
+
+        # last layer
+        pool_factor = 2 ** len(self.max_pools)
+        Hout, Wout = H // pool_factor, W // pool_factor
+        if weight_scale == "kaiming":
+            self.params[f'W{self.num_layers}'] = kaiming_initializer(num_filters[-1]*Hout*Wout, 
+                              Dout=num_classes, K=None, relu=True, device=device, dtype=dtype)
+        else:
+            self.params[f'W{self.num_layers}'] = torch.randn(num_filters[-1]*Hout*Wout,
+                            num_classes, device=device, dtype=dtype) * weight_scale 
         self.params[f'b{self.num_layers}'] = torch.zeros(num_classes, device=device, dtype=dtype)
         ################################################################
         #                      END OF YOUR CODE                        #
@@ -660,7 +667,7 @@ class DeepConvNet(object):
 
         for i in reversed(range(self.num_layers)):
             loss += 0.5 * self.reg * torch.sum(self.params[f'W{i+1}'] ** 2)
-            if i == 0:
+            if i == self.num_layers-1:
                 dscores, grads[f'W{i+1}'], grads[f'b{i+1}'] = lm.backward(
                     dscores, caches[i])
             elif i in self.max_pools:
@@ -685,7 +692,8 @@ def find_overfit_parameters():
     # model achieves 100% training accuracy within 30 epochs. #
     ###########################################################
     # Replace "pass" statement with your code
-    pass
+    weight_scale = 2e-1   # Experiment with this!
+    learning_rate = 1e-3  # Experiment with this!
     ###########################################################
     #                       END OF YOUR CODE                  #
     ###########################################################
@@ -700,7 +708,29 @@ def create_convolutional_solver_instance(data_dict, dtype, device):
     # CIFAR-10 within 60 seconds.                           #
     #########################################################
     # Replace "pass" statement with your code
-    pass
+    data = {
+      'X_train': data_dict['X_train'],
+      'y_train': data_dict['y_train'],
+      'X_val': data_dict['X_val'],
+      'y_val': data_dict['y_val'],
+    }
+    input_dims = data_dict['X_train'].shape[1:]
+    model = DeepConvNet(input_dims=input_dims, num_classes=10,
+                    num_filters=(16,16,32,32,128,128),
+                    max_pools=[1,3,5],
+                    weight_scale='kaiming',
+                    reg=1e-5, 
+                    dtype=torch.float32,
+                    device='cuda'
+                    )
+    solver = Solver(model, data,
+                  num_epochs=10, batch_size=128,
+                  update_rule=sgd_momentum,
+                  optim_config={
+                    'learning_rate': 5e-3,
+                  },
+                  print_every=1000, device='cuda')
+    print("learning rate: 1")
     #########################################################
     #                  END OF YOUR CODE                     #
     #########################################################
@@ -742,7 +772,10 @@ def kaiming_initializer(Din, Dout, K=None, relu=True, device='cpu',
         # and device.                                                     #
         ###################################################################
         # Replace "pass" statement with your code
-        pass
+        if relu:
+            weight= (2/Din)**(1/2) * torch.randn(Din, Dout, dtype=dtype, device=device)
+        else:
+            weight= (1/Din)**(1/2) * torch.randn(Din, Dout, dtype=dtype, device=device)
         ###################################################################
         #                            END OF YOUR CODE                     #
         ###################################################################
@@ -756,7 +789,13 @@ def kaiming_initializer(Din, Dout, K=None, relu=True, device='cpu',
         # and device.                                                     #
         ###################################################################
         # Replace "pass" statement with your code
-        pass
+        fan_in = Din * K * K
+        if relu:
+            std = (2/fan_in)**(1/2)
+            weight= std * torch.randn(Din, Dout, K, K, dtype=dtype, device=device)
+        else:
+            std = (1/fan_in)**(1/2)
+            weight= std * torch.randn(Din, Dout, K, K, dtype=dtype, device=device)
         ###################################################################
         #                         END OF YOUR CODE                        #
         ###################################################################
@@ -769,19 +808,15 @@ class BatchNorm(object):
     def forward(x, gamma, beta, bn_param):
         """
         Forward pass for batch normalization.
-
         During training the sample mean and (uncorrected) sample variance
         are computed from minibatch statistics and used to normalize the
         incoming data. During training we also keep an exponentially decaying
         running mean of the mean and variance of each feature, and these
         averages are used to normalize data at test-time.
-
         At each timestep we update the running averages for mean and
         variance using an exponential decay based on the momentum parameter:
-
         running_mean = momentum * running_mean + (1 - momentum) * sample_mean
         running_var = momentum * running_var + (1 - momentum) * sample_var
-
         Note that the batch normalization paper suggests a different
         test-time behavior: they compute sample mean and variance for
         each feature using a large number of training images rather than
@@ -789,7 +824,6 @@ class BatchNorm(object):
         running averages instead since they do not require an additional
         estimation step; the PyTorch implementation of batch normalization
         also uses running averages.
-
         Input:
         - x: Data of shape (N, D)
         - gamma: Scale parameter of shape (D,)
@@ -802,7 +836,6 @@ class BatchNorm(object):
             of features
           - running_var Array of shape (D,) giving running variance
             of features
-
         Returns a tuple of:
         - out: of shape (N, D)
         - cache: A tuple of values needed in the backward pass
@@ -885,15 +918,12 @@ class BatchNorm(object):
     def backward(dout, cache):
         """
         Backward pass for batch normalization.
-
         For this implementation, you should write out a
         computation graph for batch normalization on paper and
         propagate gradients backward through intermediate nodes.
-
         Inputs:
         - dout: Upstream derivatives, of shape (N, D)
         - cache: Variable of intermediates from batchnorm_forward.
-
         Returns a tuple of:
         - dx: Gradient with respect to inputs x, of shape (N, D)
         - dgamma: Gradient with respect to scale parameter gamma,
@@ -936,7 +966,6 @@ class SpatialBatchNorm(object):
     def forward(x, gamma, beta, bn_param):
         """
         Computes the forward pass for spatial batch normalization.
-
         Inputs:
         - x: Input data of shape (N, C, H, W)
         - gamma: Scale parameter, of shape (C,)
@@ -953,7 +982,6 @@ class SpatialBatchNorm(object):
             features
           - running_var Array of shape (C,) giving running variance
             of features
-
         Returns a tuple of:
         - out: Output data, of shape (N, C, H, W)
         - cache: Values needed for the backward pass
@@ -1013,6 +1041,7 @@ class SpatialBatchNorm(object):
         ##################################################################
 
         return dx, dgamma, dbeta
+
 
 ##################################################################
 #           Fast Implementations and Sandwich Layers             #
